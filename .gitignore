@@ -1,14 +1,21 @@
 # Dépendances
 node_modules/
+mobile/node_modules/
+server/node_modules/
 
-# Variables d'environnement — NE JAMAIS pousser sur Git
+# Variables d'environnement
 .env
 .env.local
 .env.production
+server/.env
+mobile/.env
 
 # Expo
 mobile/.expo/
 mobile/dist/
+
+# Git imbriqué
+mobile/.git/
 
 # Logs
 *.log
