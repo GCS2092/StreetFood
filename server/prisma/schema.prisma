@@ -1,0 +1,342 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ══════════════════════════════════════════════
+//  ENUMS
+// ══════════════════════════════════════════════
+
+enum Role {
+  CLIENT
+  VENDOR
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING       // En attente de confirmation vendeur
+  CONFIRMED     // Confirmée par le vendeur
+  PREPARING     // En préparation
+  READY         // Prête à récupérer
+  COMPLETED     // Récupérée par le client
+  CANCELLED     // Annulée
+}
+
+enum PaymentMethod {
+  CASH
+  WAVE
+  ORANGE_MONEY
+}
+
+enum NotificationType {
+  ORDER_CONFIRMED
+  ORDER_READY
+  ORDER_CANCELLED
+  NEW_REVIEW
+  PROMO
+}
+
+enum TransactionType {
+  PURCHASE      // Dépense chez un vendeur
+  REFUND        // Remboursement
+  BONUS         // Bonus fidélité
+}
+
+enum DishCategory {
+  ENTREE
+  PLAT
+  DESSERT
+  BOISSON
+  SNACK
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+// ══════════════════════════════════════════════
+//  USER — Utilisateur (client ou vendeur)
+// ══════════════════════════════════════════════
+
+model User {
+  id           String   @id @default(cuid())
+  phone        String?  @unique
+  email        String?  @unique
+  name         String
+  avatar       String?
+  passwordHash String?
+  role         Role     @default(CLIENT)
+  isActive     Boolean  @default(true)
+
+  // Connexion sociale
+  googleId     String?  @unique
+  facebookId   String?  @unique
+
+  // Wallet
+  walletBalance Float   @default(0)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  vendor        Vendor?
+  orders        Order[]
+  reviews       Review[]
+  refreshTokens RefreshToken[]
+  notifications Notification[]
+  favorites     FavoriteVendor[]
+  otpCodes      OtpCode[]
+  transactions  WalletTransaction[]
+}
+
+// ══════════════════════════════════════════════
+//  VENDOR CATEGORY — Catégorie de commerce
+// ══════════════════════════════════════════════
+
+model VendorCategory {
+  id    String @id @default(cuid())
+  name  String @unique  // ex: "Thiéboudienne", "Sandwichs", "Jus"
+  icon  String?         // emoji ou nom d'icône
+
+  vendors Vendor[]
+}
+
+// ══════════════════════════════════════════════
+//  VENDOR — Commerce / vendeur de rue
+// ══════════════════════════════════════════════
+
+model Vendor {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  latitude      Float
+  longitude     Float
+  address       String?
+  phone         String?
+  coverImage    String?
+  isOpen        Boolean  @default(true)
+  averageRating Float    @default(0)
+  totalReviews  Int      @default(0)
+
+  // Lien vers la catégorie
+  categoryId    String?
+  category      VendorCategory? @relation(fields: [categoryId], references: [id])
+
+  // Propriétaire
+  ownerId       String   @unique
+  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  dishes        Dish[]
+  orders        Order[]
+  reviews       Review[]
+  openingHours  OpeningHours[]
+  favoritedBy   FavoriteVendor[]
+}
+
+// ══════════════════════════════════════════════
+//  OPENING HOURS — Horaires d'ouverture
+// ══════════════════════════════════════════════
+
+model OpeningHours {
+  id        String    @id @default(cuid())
+  day       DayOfWeek
+  openTime  String    // format "08:00"
+  closeTime String    // format "20:00"
+  isClosed  Boolean   @default(false)
+
+  vendorId  String
+  vendor    Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, day]) // un seul créneau par jour par vendeur
+}
+
+// ══════════════════════════════════════════════
+//  DISH — Plat du menu
+// ══════════════════════════════════════════════
+
+model Dish {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+  image       String?
+  prepTime    Int?        // en minutes
+  category    DishCategory @default(PLAT)
+  isAvailable Boolean     @default(true)
+
+  vendorId    String
+  vendor      Vendor      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  orderItems  OrderItem[]
+}
+
+// ══════════════════════════════════════════════
+//  ORDER — Commande client
+// ══════════════════════════════════════════════
+
+model Order {
+  id            String        @id @default(cuid())
+  total         Float
+  status        OrderStatus   @default(PENDING)
+  paymentMethod PaymentMethod @default(CASH)
+  isPaid        Boolean       @default(false)
+  note          String?       // Note du client au vendeur
+  estimatedTime Int?          // Temps estimé en minutes (affiché dans tracking)
+  pickupCode    String?       // Code à 4 chiffres pour la récupération
+
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  vendorId      String
+  vendor        Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  items         OrderItem[]
+  notifications Notification[]
+}
+
+// ══════════════════════════════════════════════
+//  ORDER ITEM — Un plat dans une commande
+// ══════════════════════════════════════════════
+
+model OrderItem {
+  id        String @id @default(cuid())
+  quantity  Int
+  unitPrice Float  // Prix snapshot au moment de la commande
+
+  orderId   String
+  order     Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  dishId    String
+  dish      Dish   @relation(fields: [dishId], references: [id], onDelete: Cascade)
+}
+
+// ══════════════════════════════════════════════
+//  REVIEW — Avis client
+// ══════════════════════════════════════════════
+
+model Review {
+  id          String   @id @default(cuid())
+  rating      Int      // 1 à 5
+  comment     String?
+  vendorReply String?  // Réponse du vendeur à l'avis
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  repliedAt   DateTime? // Date de la réponse vendeur
+
+  @@unique([userId, vendorId]) // Un seul avis par client par vendeur
+}
+
+// ══════════════════════════════════════════════
+//  FAVORITE VENDOR — Vendeurs favoris
+// ══════════════════════════════════════════════
+
+model FavoriteVendor {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  vendorId  String
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, vendorId]) // Un vendeur ne peut être en favori qu'une seule fois
+}
+
+// ══════════════════════════════════════════════
+//  NOTIFICATION — Alertes utilisateur
+// ══════════════════════════════════════════════
+
+model Notification {
+  id        String           @id @default(cuid())
+  type      NotificationType
+  title     String
+  body      String
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Lien optionnel vers la commande concernée
+  orderId   String?
+  order     Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+}
+
+// ══════════════════════════════════════════════
+//  WALLET TRANSACTION — Historique du wallet
+// ══════════════════════════════════════════════
+
+model WalletTransaction {
+  id          String          @id @default(cuid())
+  type        TransactionType
+  amount      Float
+  description String?         // ex: "Commande chez Chez Fatou"
+  createdAt   DateTime        @default(now())
+
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Lien optionnel vers la commande liée
+  orderId     String?
+}
+
+// ══════════════════════════════════════════════
+//  OTP CODE — Codes SMS de connexion
+// ══════════════════════════════════════════════
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  isUsed    Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([phone]) // Index pour accélérer la recherche par numéro
+}
+
+// ══════════════════════════════════════════════
+//  REFRESH TOKEN — Sessions persistantes
+// ══════════════════════════════════════════════
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

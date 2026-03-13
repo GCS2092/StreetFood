@@ -1,0 +1,260 @@
+Voilà le document restructuré, plus clair et complet :
+
+---
+
+# 📚 Guide Technique — StreetFood Dakar Backend
+
+---
+
+## 1️⃣ Préparation initiale
+
+### `.env` — Variables d'environnement
+Contient tous les secrets et identifiants du serveur. Ne jamais partager ce fichier ni le mettre sur GitHub.
+
+```
+DATABASE_URL        → connexion PostgreSQL
+JWT_SECRET          → clé de signature des access tokens (15 min)
+JWT_REFRESH_SECRET  → clé de signature des refresh tokens (30 jours)
+PORT                → port du serveur (3001)
+NODE_ENV            → development ou production
+
+TWILIO_ACCOUNT_SID  → identifiant compte Twilio
+TWILIO_AUTH_TOKEN   → clé secrète Twilio
+TWILIO_VERIFY_SID   → identifiant service Verify (SMS OTP)
+
+GOOGLE_CLIENT_ID     → connexion sociale Google
+GOOGLE_CLIENT_SECRET → connexion sociale Google
+FACEBOOK_APP_ID      → connexion sociale Facebook
+FACEBOOK_APP_SECRET  → connexion sociale Facebook
+
+CLOUDINARY_CLOUD_NAME → stockage images
+CLOUDINARY_API_KEY    → stockage images
+CLOUDINARY_API_SECRET → stockage images
+```
+
+---
+
+### `prisma/schema.prisma` — Structure de la base de données
+Définit toutes les tables, colonnes, types et relations. Toute interaction avec PostgreSQL passe par ce fichier via Prisma.
+
+**13 tables créées et migrées ✅**
+
+| Table | Rôle |
+|---|---|
+| `User` | Utilisateurs (clients et vendeurs) |
+| `Vendor` | Commerces et vendeurs de rue |
+| `VendorCategory` | Catégories de commerce (filtres) |
+| `OpeningHours` | Horaires par jour de la semaine |
+| `Dish` | Plats du menu |
+| `Order` | Commandes clients |
+| `OrderItem` | Ligne de commande (un plat dans une commande) |
+| `Review` | Avis clients avec réponse vendeur |
+| `FavoriteVendor` | Vendeurs favoris par utilisateur |
+| `Notification` | Alertes liées aux commandes |
+| `WalletTransaction` | Historique des dépenses du Wallet |
+| `OtpCode` | Codes SMS de connexion |
+| `RefreshToken` | Sessions persistantes |
+
+---
+
+## 2️⃣ Architecture du serveur
+
+Chaque requête de l'application mobile suit toujours ce chemin :
+
+```
+Application mobile
+       ↓
+   ROUTE          →  définit l'URL et le type (GET, POST, PUT, DELETE)
+       ↓
+   MIDDLEWARE     →  filtre de sécurité — bloque si échec
+       ↓
+   CONTROLLER     →  traite la requête et répond
+       ↓
+   BASE DE DONNÉES (via Prisma)
+```
+
+---
+
+## 3️⃣ Groupe 1 — Utilitaires (`src/utils/`) ✅
+
+Outils de base utilisés partout dans le serveur.
+
+| Fichier | Rôle | Statut |
+|---|---|---|
+| `prisma.js` | Connexion unique à PostgreSQL | ✅ Fait |
+| `jwt.js` | Créer et vérifier les access/refresh tokens | ✅ Fait |
+| `otp.js` | Envoyer et vérifier les codes SMS via Twilio | ✅ Fait |
+| `cloudinary.js` | Uploader et supprimer les images | ✅ Fait |
+| `oauth.js` | Vérifier les tokens Google et Facebook | ✅ Fait |
+
+**Points importants :**
+- `jwt.js` génère deux tokens — access (15 min) et refresh (30 jours)
+- `otp.js` est compatible Orange, Free et Expresso Sénégal
+- `cloudinary.js` stocke les images de façon permanente — elles survivent aux redémarrages
+- `oauth.js` — les noms venant de Google/Facebook sont stockés directement sans validation Zod
+
+---
+
+## 4️⃣ Groupe 2 — Middleware (`src/middleware/`) ✅
+
+Filtres exécutés avant chaque controller. Si un filtre échoue, la requête est bloquée immédiatement.
+
+| Fichier | Rôle | Utilisé quand |
+|---|---|---|
+| `auth.middleware.js` | Vérifie le token JWT dans l'en-tête | Toute route protégée |
+| `role.middleware.js` | Vérifie le rôle (CLIENT, VENDOR, ADMIN) | Routes vendeur et admin |
+| `validate.middleware.js` | Vérifie les données reçues avec Zod | Toute route qui reçoit des données |
+| `upload.middleware.js` | Reçoit et vérifie les photos (5MB max, JPG/PNG/WebP) | Upload d'images |
+| `rateLimiter.middleware.js` | Limite les abus par IP | Auth, OTP, reset password |
+| `error.middleware.js` | Gère toutes les erreurs proprement | Automatique sur toutes les routes |
+
+**Limites configurées dans `rateLimiter.middleware.js` :**
+
+| Limiteur | Max | Fenêtre | Route cible |
+|---|---|---|---|
+| `generalLimiter` | 100 requêtes | 15 min | Toutes les routes `/api` |
+| `authLimiter` | 5 tentatives | 15 min | Login — après 5 échecs affiche "Mot de passe oublié ?" |
+| `otpLimiter` | 3 SMS | 1 heure | Envoi de code SMS |
+| `resetPasswordLimiter` | 3 demandes | 1 heure | Demande de réinitialisation |
+
+**Validation des noms (`validate.middleware.js`) :**
+La regex `/^[\p{L}\s\-''.]+$/u` accepte tous les noms africains, composés et accentués :
+- ✅ `Aminata Fatou Diallo-Ndiaye` — nom composé avec tiret
+- ✅ `Mbacké`, `Ndèye`, `N'Diaye` — accents et apostrophes
+- ❌ `Ousmane123`, `<script>` — chiffres et injections bloqués
+
+---
+
+## 5️⃣ Groupe 3 — Authentification (`src/routes/` + `src/controllers/`) 🔄 En cours
+
+### Routes prévues
+
+**Connexion classique**
+```
+POST /api/auth/register        → inscription email/mot de passe
+POST /api/auth/login           → connexion email/mot de passe
+POST /api/auth/refresh         → renouveler l'access token
+POST /api/auth/logout          → déconnexion et révocation du refresh token
+```
+
+**Connexion par téléphone (OTP SMS)**
+```
+POST /api/auth/send-otp        → envoie le code SMS
+POST /api/auth/verify-otp      → vérifie le code et connecte
+```
+
+**Connexion sociale**
+```
+POST /api/auth/google          → connexion via Google
+POST /api/auth/facebook        → connexion via Facebook
+```
+
+**Réinitialisation du mot de passe**
+```
+POST /api/auth/forgot-password    → envoie un code SMS ou email
+POST /api/auth/verify-reset-code  → vérifie le code reçu
+POST /api/auth/reset-password     → change le mot de passe
+```
+
+---
+
+## 6️⃣ Groupe 4 — Fonctionnalités métier ⏳ À venir
+
+| Groupe | Fichiers | Écrans concernés |
+|---|---|---|
+| Vendors | `vendor.routes.js` + `vendor.controller.js` | Carte, liste, fiche vendeur |
+| Dishes | `dish.routes.js` + `dish.controller.js` | Menu vendeur, commande |
+| Orders | `order.routes.js` + `order.controller.js` | Commandes, suivi, tracking |
+| Reviews | `review.routes.js` + `review.controller.js` | Avis, réponse vendeur |
+| Wallet | `wallet.routes.js` + `wallet.controller.js` | StreetFood Wallet, graphiques |
+
+---
+
+On attaque le **Groupe 3 — Authentification** ?
+
+
+Groupe 3 — Authentification
+src/routes/auth.routes.jsCe fichier est simple — il ne fait que brancher chaque URL sur la bonne fonction du controller, avec les bons middleware devant.
+
+src/controllers/auth.controller.js
+C'est le fichier le plus important de cette section. Chaque fonction correspond à une route.
+
+
+auth.routes.js — L'hôtesse d'accueil
+Ce fichier ne fait qu'une seule chose : quand quelqu'un frappe à une porte précise, il l'oriente vers la bonne personne. Il dit "POST /register ? Je t'envoie vers la fonction register du controller, mais d'abord passe par le validate et le authLimiter." C'est un fichier d'aiguillage pur — aucune logique, juste des branchements.auth.controller.js — Le cuisinier
+C'est lui qui fait vraiment le travail. Il reçoit la commande, vérifie les ingrédients, cuisine la réponse et la renvoie. C'est le fichier le plus important et le plus long — on va y revenir en détail juste en dessous.
+## Ce que fait chaque fichier
+
+Imagine que ton serveur est un **restaurant**. Voici comment chaque fichier joue un rôle dans ce restaurant.
+
+------
+
+**`auth.routes.js` — L'hôtesse d'accueil**
+Ce fichier ne fait qu'une seule chose : quand quelqu'un frappe à une porte précise, il l'oriente vers la bonne personne. Il dit "POST /register ? Je t'envoie vers la fonction register du controller, mais d'abord passe par le validate et le authLimiter." C'est un fichier d'aiguillage pur — aucune logique, juste des branchements.
+
+**`auth.controller.js` — Le cuisinier**
+C'est lui qui fait vraiment le travail. Il reçoit la commande, vérifie les ingrédients, cuisine la réponse et la renvoie. C'est le fichier le plus important et le plus long — on va y revenir en détail juste en dessous.
+
+---
+
+## Comment fonctionne `auth.controller.js` fonction par fonction---
+
+**Le point le plus important à comprendre — `buildAuthResponse()`**
+
+C'est la fonction secrète que toutes les autres appellent. Peu importe comment tu te connectes — mot de passe, SMS, Google ou Facebook — à la fin tu passes toujours par `buildAuthResponse()`. Elle fait trois choses : génère l'access token, génère le refresh token, sauvegarde le refresh token en base. Résultat : toutes les connexions renvoient exactement le même format de réponse à l'app mobile.
+
+**Pourquoi chiffrer le mot de passe avec `bcrypt` ?**
+
+Quand tu tapes "monmotdepasse", bcrypt le transforme en quelque chose comme `$2b$12$xK9...` avant de le stocker. Ce code est irréversible — même si quelqu'un vole la base de données, il ne peut pas retrouver le vrai mot de passe. Lors de la connexion, bcrypt compare les deux versions chiffrées sans jamais déchiffrer.
+
+**Pourquoi `forgotPassword()` répond toujours la même chose ?**
+
+```
+"Si ce compte existe, un code a été envoyé."
+```
+
+Même si le compte n'existe pas, la réponse est identique. C'est volontaire — si on répondait "compte introuvable", un pirate pourrait tester des milliers d'emails pour savoir lesquels sont enregistrés dans l'app.
+
+---
+
+Groupe 4 — Vendors
+Les vendors c'est le cœur de l'app — sans vendeurs, pas de plats, pas de commandes. Ce groupe gère tout ce qui concerne les commerces : les créer, les lister, les filtrer, les trouver sur la carte, gérer leurs horaires et leurs favoris.
+Ce que couvre ce groupe en termes d'écrans :
+FonctionÉcran de l'appgetAll + getNearby(tabs)/index.tsx — carte + (tabs)/list.tsx — listegetOnevendor/[id].tsx — fiche vendeurgetCategories(modals)/filter.tsx — filtrestoggleFavorite + getFavorites(tabs)/profile.tsx — favoriscreate + update + updateCovervendor-space/dashboard.tsxtoggleStatusvendor-space/dashboard.tsx — ouvrir/fermerupdateOpeningHoursvendor-space/dashboard.tsx — horaires
+
+Dishes — Gestion des platsLes plats dépendent directement des vendeurs — un plat appartient toujours à un vendeur. Ce groupe gère la création, modification, suppression et affichage des plats du menu
+Ce que couvre ce groupe en termes d'écrans :
+FonctionÉcran de l'appgetByVendorvendor/[id].tsx — menu groupé par catégoriecreate(modals)/add-dish.tsx — ajouter un platupdate + updateImage(modals)/edit-dish.tsx — modifier un plattoggleAvailabilityvendor-space/menu.tsx — activer/désactiverremovevendor-space/menu.tsx — supprimer
+
+Dis-moi quand c'est copié et on passe au Orders — le groupe le plus complexe du projet.
+
+Orders — Gestion des commandes
+C'est le groupe le plus complexe — une commande touche à tout : les plats, le vendeur, le client, le wallet, et les notifications. Chaque action sur une commande déclenche une chaîne de mises à jour
+Le point clé — prisma.$transaction()
+Deux endroits utilisent une transaction dans ce controller. C'est essentiel à comprendre. Une transaction signifie que toutes les opérations à l'intérieur réussissent ensemble ou échouent ensemble. Dans create() par exemple : créer la commande ET débiter le wallet se font en une seule opération atomique. Si le débit du wallet échoue, la commande n'est pas créée non plus. Jamais de commande créée sans paiement, jamais de paiement débité sans commande.
+Ce que couvre ce groupe en termes d'écrans :
+FonctionÉcran de l'appcreateorder/[vendorId].tsx + order/confirmation.tsxgetMyOrders(tabs)/orders.tsx — historique clientgetOneorder/tracking/[id].tsx — suivi en temps réelgetVendorOrdersvendor-space/orders.tsx — commandes reçuesupdateStatusvendor-space/orders.tsx — confirmer, préparer, prêtcancel(tabs)/orders.tsx — annuler une commande
+Reviews — Gestion des avis
+Les avis dépendent des commandes — un client ne peut laisser un avis que s'il a déjà commandé chez ce vendeur. Et le vendeur peut répondre à chaque avis depuis son espace.
+
+Les 3 règles métier importantes de ce controller :
+La première — un client ne peut laisser un avis que s'il a une commande avec le statut COMPLETED chez ce vendeur. Pas de commande terminée, pas d'avis possible. Cela évite les faux avis.
+La deuxième — la moyenne du vendeur (averageRating) est recalculée automatiquement à chaque création et suppression d'avis via une transaction. Elle est toujours à jour en base, jamais calculée à la volée côté mobile.
+La troisième — le vendeur ne peut répondre qu'une seule fois par avis. Si vendorReply existe déjà, la route renvoie une erreur 409.
+Ce que couvre ce groupe en termes d'écrans :
+FonctionÉcran de l'appgetByVendorvendor/[id].tsx — section aviscreate(modals)/leave-review.tsxreplyvendor-space/reviews.tsxremove(tabs)/profile.tsx — mes avis
+
+
+Wallet — StreetFood Wallet
+Le wallet est la fonctionnalité qui donne une vue complète des habitudes de dépenses de l'utilisateur. Il affiche le solde, l'historique des transactions, les statistiques et les graphiques de l'écran wallet.tsx.
+
+
+Ce que renvoie chaque route et à quoi ça sert dans l'écran wallet.tsx :
+/balance → le solde affiché dans WalletCard.tsx en haut de l'écran.
+/transactions → la liste défilante dans SpendingChart.tsx — chaque ligne est une transaction avec son montant, sa date et sa description.
+/stats → les 4 blocs de chiffres dans StatBlock.tsx — total dépensé, dépenses ce mois, nombre de commandes, vendeur favori. Le champ evolution alimente la flèche verte ou rouge qui indique si on dépense plus ou moins que le mois dernier.
+/habits → les données du graphique dans SpendingChart.tsx et le résumé dans HabitSummary.tsx — dépenses par jour sur 30 jours, répartition par catégorie de plat, jour le plus actif, heure de pointe.
+
+Tous les controllers sont maintenant terminés. Il reste une dernière étape avant que le serveur soit complet — brancher toutes les routes dans server.js et vérifier que les fichiers restants sont tous reliés.
+
+
