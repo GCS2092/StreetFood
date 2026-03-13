@@ -3,7 +3,7 @@ const cors = require('cors')
 const helmet = require('helmet')
 const morgan = require('morgan')
 const hpp = require('hpp')
-const xss = require('xss-clean')
+const { xss } = require('express-xss-sanitizer')
 require('dotenv').config()
 
 const app = express()
