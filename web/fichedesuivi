@@ -1,0 +1,193 @@
+Voilà l'utilité de chaque fichier :
+
+---
+
+**`next.config.js`**
+C'est le fichier de configuration de toute ton app Next.js. Il active la PWA (ce qui rend l'app installable sur mobile et desktop), configure Cloudinary pour afficher les images de tes vendeurs et plats, et dit à Next.js où est ton backend.
+
+---
+
+**`src/lib/api.ts`**
+C'est le seul endroit où tu parles à ton backend. Au lieu d'écrire `axios.get('http://localhost:3001/api/...')` partout dans le code, tu passes toujours par ce fichier. Il fait deux choses automatiquement — il ajoute le token JWT à chaque requête sans que tu aies à y penser, et si le token expire, il le renouvelle tout seul et relance la requête sans que l'utilisateur ne remarque quoi que ce soit.
+
+---
+
+**`src/store/auth.store.ts`**
+C'est la mémoire globale de l'authentification. Il retient qui est connecté, son token, son profil. N'importe quelle page ou composant peut savoir instantanément si l'utilisateur est connecté et qui il est, sans passer des données de parent en enfant. Il persiste aussi la session — si tu fermes et rouvres l'app, tu restes connecté.
+
+---
+
+**`src/types/index.ts`**
+C'est le dictionnaire de ton projet. Il définit la forme exacte de chaque donnée — à quoi ressemble un `User`, un `Vendor`, une `Order`, un `WalletTransaction`. TypeScript utilise ça pour te prévenir immédiatement si tu fais une erreur, par exemple si tu essaies d'accéder à un champ qui n'existe pas.
+
+Voilà les groupes dans l'ordre de priorité :
+
+---
+
+**Groupe 1 — Fondations UI** *(à faire en premier, tout le reste en dépend)*
+
+```
+src/components/ui/
+├── Button.tsx
+├── Input.tsx
+├── Card.tsx
+├── Badge.tsx
+└── Avatar.tsx
+
+src/components/layout/
+├── Header.tsx
+├── Navbar.tsx
+└── Footer.tsx
+
+src/app/layout.tsx   → layout racine (providers, fonts)
+```
+
+Pourquoi en premier — chaque page utilise ces composants. Si tu les fais après, tu devras revenir modifier toutes tes pages.
+
+---
+
+**Groupe 2 — Authentification** *(débloque tout le reste)*
+
+```
+src/app/auth/login/page.tsx
+src/app/auth/register/page.tsx
+src/hooks/useAuth.ts
+src/components/layout/ProtectedRoute.tsx
+```
+
+Pourquoi en deuxième — sans auth, tu ne peux pas tester les routes protégées (commandes, wallet, dashboard vendeur). C'est le déblocage de tout le reste.
+
+---
+
+**Groupe 3 — Vendeurs** *(cœur de l'app côté client)*
+
+```
+src/app/page.tsx                     → page d'accueil avec liste vendeurs
+src/app/vendors/page.tsx             → liste complète
+src/app/vendors/[id]/page.tsx        → fiche vendeur + menu
+src/components/vendors/VendorCard.tsx
+src/components/vendors/VendorMap.tsx
+src/components/vendors/DishCard.tsx
+src/hooks/useVendors.ts
+```
+
+Pourquoi en troisième — c'est l'écran principal que voit l'utilisateur après connexion. Sans vendeurs affichés, l'app ne montre rien d'utile.
+
+---
+
+**Groupe 4 — Commandes** *(fonctionnalité clé)*
+
+```
+src/app/orders/page.tsx              → historique commandes
+src/app/orders/[id]/page.tsx         → suivi commande
+src/app/orders/new/[vendorId]/page.tsx → passer une commande
+src/components/orders/OrderCard.tsx
+src/components/orders/OrderStatus.tsx
+src/store/cart.store.ts              → panier zustand
+src/hooks/useOrders.ts
+```
+
+Pourquoi en quatrième — dépend des vendeurs et des plats. Le panier zustand est le lien entre la fiche vendeur et la commande.
+
+---
+
+**Groupe 5 — Wallet** *(fonctionnalité différenciante)*
+
+```
+src/app/wallet/page.tsx
+src/components/wallet/WalletCard.tsx
+src/components/wallet/TransactionList.tsx
+src/components/wallet/SpendingChart.tsx
+src/components/wallet/StatBlock.tsx
+src/hooks/useWallet.ts
+```
+
+Pourquoi en cinquième — dépend des commandes pour avoir des données à afficher. Sans commandes passées, le wallet est vide.
+
+---
+
+**Groupe 6 — Dashboard Vendeur** *(espace pro)*
+
+```
+src/app/vendor-space/dashboard/page.tsx
+src/app/vendor-space/orders/page.tsx
+src/app/vendor-space/menu/page.tsx
+src/app/vendor-space/reviews/page.tsx
+src/components/vendors/OrderManagement.tsx
+src/components/vendors/MenuManager.tsx
+```
+
+Pourquoi en dernier — c'est un espace séparé avec sa propre logique. Il nécessite que tout le reste soit stable avant d'être construit.
+
+---
+
+On commence par le **Groupe 1** ?
+**`.env.local`**
+Une seule ligne — l'URL de ton backend. Si demain tu passes en production, tu changes juste cette ligne et toute l'app pointe vers le bon serveur. Ne jamais le mettre sur GitHub.
+
+Fichier 1 — src/app/layout.tsxCe que c'est et pourquoi c'est le premier fichier à faire :C'est le fichier racine de toute ton application. Chaque page que tu créeras plus tard sera automatiquement enveloppée dedans. Il fait trois choses critiques — il définit les fonts de tout le projet, il installe les providers globaux (React Query pour les requêtes API, le store Zustand), et il ajoute le <Toaster> de Sonner pour que les notifications toast fonctionnent partout.Sans ce fichier bien configuré, rien d'autre ne peut fonctionner correctement.%
+
+Fichier 2 — src/components/layout/Providers.tsxCe que c'est :C'est le fichier qui installe React Query dans toute l'app. React Query est ce qui gère tous tes appels API — il met en cache les résultats, gère les états de chargement et d'erreur automatiquement. Il doit envelopper toute l'app, c'est pour ça qu'il est dans le layout. C'est aussi ici qu'on ajoutera d'autres providers plus tard si besoin
+
+Fichier 3 — src/app/globals.cssCe que c'est :C'est le fichier CSS global. Il définit toutes les variables de couleur, les fonts, et les styles de base utilisés partout. Pense-y comme la palette de ton designer — une seule fois définie ici, utilisée dans tous les composants. La couleur principale de StreetFood Dakar est l'orange #F97316 — chaleureux, street food, Sénégal.
+Fichiers 4 à 8 — Composants UI de baseCe que c'est :Ce sont les briques réutilisables. Chaque page utilisera ces composants des dizaines de fois. On les crée une fois, on les réutilise partout — c'est le principe DRY (Don't Repeat Yourself).
+Fichiers 4 à 8 — Composants UI de base
+Ce que c'est :
+Ce sont les briques réutilisables. Chaque page utilisera ces composants des dizaines de fois. On les crée une fois, on les réutilise partout — c'est le principe DRY (Don't Repeat Yourself).5 fichiers créés5 fichiers créés
+Fichiers 9 à 11 — Layout (Header, Navbar, Footer)
+Ce que c'est :
+Ce sont les composants de structure de chaque page. Le Header affiche le logo et les actions utilisateur. La Navbar est la barre de navigation du bas sur mobile. Le Footer est présent sur les pages publiques.4 fichiers créés, lu un fichier4 fichiers créés, lu un fichierGroupe 1 terminé — 12 fichiers créés.
+Voilà où placer chaque fichier :
+FichierDestinationlayout.tsxweb/src/app/layout.tsx (remplace l'existant)globals.cssweb/src/app/globals.css (remplace l'existant)Providers.tsxweb/src/components/layout/Header.tsxweb/src/components/layout/Navbar.tsxweb/src/components/layout/ProtectedRoute.tsxweb/src/components/layout/Button.tsxweb/src/components/ui/Input.tsxweb/src/components/ui/Card.tsxweb/src/components/ui/Badge.tsxweb/src/components/ui/Avatar.tsxweb/src/components/ui/manifest.jsonweb/public/
+Une fois placés, relance npm run dev et dis-moi ce que tu vois. On passe ensuite au Groupe 2 — Auth.
+Parfait. On attaque le Groupe 2 — Auth.
+
+---
+
+## Ce qu'on va créer
+
+```
+src/app/auth/login/page.tsx
+src/app/auth/register/page.tsx
+src/hooks/useAuth.ts
+```
+
+**Logique :** `useAuth.ts` est le hook qui fait le lien entre les pages et le store Zustand. Les pages appellent le hook, le hook appelle le store, le store appelle l'API. Chaque couche a un seul rôle.
+
+---
+
+## Fichier 1 — `src/hooks/useAuth.ts`
+
+**Ce que c'est :** C'est le cerveau de l'auth côté front. Il expose les fonctions `login`, `register`, `logout` avec gestion des erreurs et des toasts de succès/échec. Les pages ne savent pas comment fonctionne l'API — elles appellent juste ce hook.---
+
+## Fichier 2 — `src/app/auth/login/page.tsx`
+
+**Ce que c'est :** La page de connexion. Elle utilise `react-hook-form` + `zod` pour valider les champs avant d'envoyer quoi que ce soit au backend. Si l'utilisateur est déjà connecté, il est redirigé automatiquement.---
+
+## Fichier 3 — `src/app/auth/register/page.tsx`
+
+**Ce que c'est :** La page d'inscription. Elle a un champ de plus — le nom — et valide que l'email ou le téléphone est fourni. La validation Zod correspond exactement à ce que ton backend attend.**3 fichiers — voilà où les mettre :**
+
+| Fichier | Destination |
+|---|---|
+| `useAuth.ts` | `web/src/hooks/useAuth.ts` |
+| `login/page.tsx` | `web/src/app/auth/login/page.tsx` *(créer le dossier `auth/login/`)* |
+| `register/page.tsx` | `web/src/app/auth/register/page.tsx` *(créer le dossier `auth/register/`)* |
+
+**Pour tester une fois en place :**
+- Va sur `http://localhost:3000/auth/login` → tu verras le formulaire de connexion
+- Clique sur "S'inscrire" → tu passes à la page register
+- Essaie de te connecter avec le compte que tu as créé dans Postman → tu devrais être redirigé vers l'accueil
+
+Dis-moi ce que tu vois !
+Parfait, j'ai tout ce qu'il me faut. On génère le Groupe 3 complet.9 fichiers créés, a exécuté une commande, lu un fichier9 fichiers créés, a exécuté une commande, lu un fichierGroupe 3 — 8 fichiers. Voilà où les mettre :
+FichierDestinationuseVendors.tssrc/hooks/useDishes.tssrc/hooks/VendorCard.tsxsrc/components/vendors/DishCard.tsxsrc/components/vendors/VendorMap.tsxsrc/components/vendors/vendors/page.tsxsrc/app/vendors/page.tsx (créer dossier vendors/)[id]/page.tsxsrc/app/vendors/[id]/page.tsx (créer dossier vendors/[id]/)page.tsxsrc/app/page.tsx (remplace l'existant)
+Une note importante sur la carte Leaflet — il faut installer le CSS de Leaflet. Ajoute cette ligne dans ton layout.tsx :
+tsximport 'leaflet/dist/leaflet.css'
+Ou installe le package si ce n'est pas déjà fait :
+powershellnpm install leaflet
+Une fois tout en place, dis-moi ce que tu vois et on passe au Groupe 4 — Commandes.UsevendorsTS TéléchargerUsedishesTS TéléchargerVendorcardCode · TSX TéléchargerDishcardCode · TSX TéléchargerVendormapCode · TSX TéléchargerPageCode · TSX TéléchargerPageCode · TSX TéléchargerPageCode · TSX TéléchargerTout télécharger
+
+Fais Ctrl+Shift+P dans VS Code puis tape :
+TypeScript: Restart TS Server
+Et appuie sur Entrée. Attends 5 secondes — les erreurs vont disparaître. C'est juste le serveur TypeScript qui n'a pas rechargé le fichier.
